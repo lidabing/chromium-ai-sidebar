@@ -1,0 +1,42 @@
+%% Readability parse() 执行流程（Mermaid）
+%% 文件: docs/readability_flow.mmd
+
+flowchart TD
+  Start([开始: Readability.parse()])
+  A1{是否超过 `maxElemsToParse`?}
+  Start --> A1
+  A1 -- 超过 --> Abort[抛错并中止]
+  A1 -- 未超过 --> Unwrap[_unwrapNoscriptImages(doc)]
+  Unwrap --> JSONLD[_getJSONLD(doc) (除非 `disableJSONLD`)]
+  JSONLD --> RemoveScripts[_removeScripts(doc)]
+  RemoveScripts --> Prep[_prepDocument()]
+  Prep --> Meta[_getArticleMetadata(jsonLd)]
+  Meta --> Grab[_grabArticle()]
+
+  subgraph GrabArticleBlock ["_grabArticle() 主流程"]
+    direction TB
+    GA_Start[循环（允许按 flags 重试）]
+    GA_Start --> Traverse[遍历 DOM 并初步清理节点]
+    Traverse --> Collect[收集 `elementsToScore` (section,h2..p,td,pre 等)]
+    Collect --> Score[为段落计分：基础分 + 逗号数 + 字数加分]
+    Score --> Ancestors[把分数分配给祖先节点 (父/祖父/...)]
+    Ancestors --> Top[选出 topCandidates 并根据 link density 调整分数]
+    Top --> Choose[选择 topCandidate 或 创建 fallback (body->div)]
+    Choose --> ParentAdjust[向上合并父节点(若父分数更高)]
+    ParentAdjust --> Siblings[扫描 siblings 并合并相关节点]
+    Siblings --> ArticleContent[构造 `articleContent` (DIV/page)]
+    ArticleContent --> PrepArticle[_prepArticle(articleContent)（细致清理）]
+    PrepArticle --> CheckLen{textLength < `charThreshold`?}
+    CheckLen -- 是 --> SaveAttempt[保存尝试到 `this._attempts` 并移除一个 flag 重试]
+    SaveAttempt --> GA_Start
+    CheckLen -- 否 --> Success[解析成功 -> 确定 `dir` 并返回 `articleContent`]
+  end
+
+  Grab --> GrabArticleBlock
+  Success --> Post[_postProcessContent(articleContent)]
+  Post --> Excerpt[若无 `metadata.excerpt` 则取首段作为摘要]
+  Excerpt --> Return([返回对象: {title, byline, dir, lang, content, textContent, length, excerpt, siteName, publishedTime}])
+
+  style Abort fill:#f8d7da,stroke:#721c24
+  style Success fill:#d4edda,stroke:#155724
+  style Start fill:#e2e3e5,stroke:#6c757d

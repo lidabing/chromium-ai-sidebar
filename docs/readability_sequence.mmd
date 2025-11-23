@@ -1,0 +1,42 @@
+%% Readability.parse() 时序图（Mermaid）
+%% 文件: docs/readability_sequence.mmd
+
+sequenceDiagram
+  participant U as 调用者 (Caller)
+  participant R as Readability
+  participant D as Document (DOM)
+  participant G as _grabArticle()
+  participant A as ArticleContent
+
+  U->>R: parse()
+  note right of R: 入口点 — Readability.parse()
+
+  R->>D: _unwrapNoscriptImages(doc)
+  R->>D: _getJSONLD(doc)  (若未禁用)
+  R->>D: _removeScripts(doc)
+  R->>D: _prepDocument()
+  R->>R: _getArticleMetadata(jsonLd)
+
+  R->>G: _grabArticle()
+  note right of G: 主算法（可能重试多次，移除 flags）
+
+  G->>D: 遍历 DOM（深度优先）
+  G->>D: 删除不可见/不可能的节点、提取 byline、转 DIV->P 等预处理
+  G->>G: 收集 elementsToScore（p,td,pre,h2..）
+  G->>G: 对段落计分并把分数分配给祖先节点
+  G->>G: 根据 linkDensity 调整分数并选出 topCandidates
+  G->>G: 选择 topCandidate / 创建 fallback (body->div)
+  G->>D: 向上合并父节点（如有更高分）并扫描 siblings 合并相关节点
+  G->>A: 构造 articleContent (DIV/page)
+
+  alt 文本长度 < charThreshold
+    note right of G: 解析失败 -> 记录尝试并移除一个 flag，重试
+    G->>G: 保存 attempt 并返回到开始（重试）
+  end
+
+  G-->>R: 返回 articleContent
+  R->>R: _postProcessContent(articleContent)（修正相对 URI / 简化嵌套 / 清理 classes）
+  R->>R: 若无 excerpt 则取首段作为摘要
+  R-->>U: 返回结果对象 { title, byline, dir, lang, content, textContent, length, excerpt, siteName, publishedTime }
+
+  note over U,R: 说明：整个过程为同步执行，会修改 DOM（如移动/删除节点）。
